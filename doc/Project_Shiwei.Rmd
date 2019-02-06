@@ -1,0 +1,448 @@
+---
+title: "What are the Differences of Happiness Based on Gender?"
+author: "Shiwei Hua - sh3804"
+graphics: yes
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+  always_allow_html: yes
+geometry: margin=0.75in
+---
+
+```{r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+HappyDB is a corpus of 100,000 crowd-sourced happy moments via Amazon's Mechanical Turk. You can read more about it on https://arxiv.org/abs/1801.07746
+
+In this R notebook, we process the raw textual data for our data analysis.
+
+### I. Exploratory Data Analysis
+
+**1.0 - Load all the required libraries**
+
+From the packages' descriptions:
+
++ `tm` is a framework for text mining applications within R;
++ `tidyverse` is an opinionated collection of R packages designed for data science. All packages share an underlying design philosophy, grammar, and data structures;
++ `tidytext` allows text mining using 'dplyr', 'ggplot2', and other tidy tools;
++ `DT` provides an R interface to the JavaScript library DataTables.
+
+```{r load libraries, warning=FALSE, message=FALSE}
+library(tm)
+library(tidytext)
+library(tidyverse)
+library(DT)
+library(dplyr)
+library(tidyr)
+
+library(ggplot2)
+library(scales)
+library(wordcloud2)
+library(wordcloud)
+library(gridExtra)
+library(ngram)
+```
+
+#### 1.1 - Load the data to be cleaned and processed
+
+```{r read data, warning=FALSE, message=FALSE, results='hide'}
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
+hm_data <- read_csv(urlfile)
+```
+
+#### 1.2 - Preliminary cleaning of text
+
+We clean the text by converting all the letters to the lower case, and removing punctuation, numbers, empty words and extra white space.
+
+```{r text processing in tm, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
+  tm_map(content_transformer(tolower))%>%
+  tm_map(removePunctuation)%>%
+  tm_map(removeNumbers)%>%
+  tm_map(removeWords, character(0))%>%
+  tm_map(stripWhitespace)
+```
+
+#### 1.3 - Stemming words and converting tm object to tidy object
+
+Stemming reduces a word to its word *stem*. We stem the words here and then convert the "tm" object to a "tidy" object for much faster processing.
+
+```{r stemming, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+stemmed <- tm_map(corpus, stemDocument) %>%
+  tidy() %>%
+  select(text)
+```
+
+#### 1.4 - Creating tidy format of the dictionary to be used for completing stems
+
+We also need a dictionary to look up the words corresponding to the stems.
+
+```{r tidy dictionary, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+dict <- tidy(corpus) %>%
+  select(text) %>%
+  unnest_tokens(dictionary, text)
+```
+
+#### 1.5 - Removing stopwords that don't hold any significant information for our data set
+
+We remove stopwords provided by the "tidytext" package and also add custom stopwords in context of our data.
+In addition to the words provided in the start code, we add some other words such as "day", "time", "days", etc to the stopwords.
+
+```{r stopwords, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+data("stop_words")
+
+word <- c("happy","ago","yesterday","lot","today","months","month",
+                 "happier","happiest","last","week","past","day",
+          "time","days","moment","enjoyed","hours","nice","weeks")
+
+stop_words <- stop_words %>%
+  bind_rows(mutate(tibble(word), lexicon = "updated"))
+```
+
+#### 1.6 - Combining stems and dictionary into the same tibble
+
+Here we combine the stems and the dictionary into the same "tidy" object.
+
+```{r tidy stems with dictionary, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+completed <- stemmed %>%
+  mutate(id = row_number()) %>%
+  unnest_tokens(stems, text) %>%
+  bind_cols(dict) %>%
+  anti_join(stop_words, by = c("dictionary" = "word"))
+```
+
+#### 1.7 - Stem completion
+
+Lastly, we complete the stems by picking the corresponding word with the highest frequency.
+
+```{r stem completion, warning=FALSE, message=FALSE, results='hide'}
+completed <- completed %>%
+  group_by(stems) %>%
+  count(dictionary) %>%
+  mutate(word = dictionary[which.max(n)]) %>%
+  ungroup() %>%
+  select(stems, word) %>%
+  distinct() %>%
+  right_join(completed) %>%
+  select(-stems)
+```
+
+#### 1.8 - Pasting stem completed individual words into their respective happy moments
+
+We want our processed words to resemble the structure of the original happy moments. So we paste the words together to form happy moments.
+
+```{r reverse unnest, results='hide'}
+completed <- completed %>%
+  group_by(id) %>%
+  summarise(text = str_c(word, collapse = " ")) %>%
+  ungroup()
+```
+
+#### 1.9 - Keeping a track of the happy moments with their own ID
+
+```{r cleaned hm_data, warning=FALSE, message=FALSE, results='hide'}
+hm_data <- hm_data %>%
+  mutate(id = row_number()) %>%
+  inner_join(completed)
+
+#datatable(hm_data)
+```
+
+#### Exporting the processed text data into a CSV file
+
+```{r export data, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+write_csv(hm_data, "../output/processed_moments.csv")
+```
+
+#### Combine both the data sets and keep the required columns for analysis
+
+We select a subset of the data that satisfies specific row conditions.
+```{r combining data, warning=FALSE, message=FALSE}
+library(forcats)
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+demo_data <- read_csv(urlfile)
+hm_data <- read_csv("../output/processed_moments.csv")
+
+hm_data <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         predicted_category,
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("m", "f")) %>%
+  filter(marital %in% c("single", "married")) %>%
+  filter(parenthood %in% c("n", "y")) %>%
+  filter(reflection_period %in% c("24h", "3m")) %>%
+  mutate(reflection_period = fct_recode(reflection_period, 
+                                        months_3 = "3m", hours_24 = "24h"))
+```
+
+Here, after looking to the data again, we found that there are some observations does not make sense. For example, there are 9 people whoes age is 227. And also, for people younger than 3 years old, we don't think they can write these notes. Therefore, we clean the data again.
+
+```{r,warning=FALSE, message=FALSE}
+hm_data <- hm_data[-c(which(as.numeric(hm_data$age)< 3),
+                    which(as.numeric(hm_data$age)>120),
+                 which(hm_data$age=="prefer not to say")),]
+```
+
+## II. Start to our research question: What are the Differences of Happiness Based on Gender?
+
+### 1. Overall Word Cloud
+
+```{r}
+bag_of_words <-  hm_data %>% unnest_tokens(word, text)
+word_count <- bag_of_words %>% dplyr::count(word, sort = TRUE)
+#wordcloud2(word_count[1:100,],size=0.8,shape="circle",color="random-dark",backgroundColor = "white")
+
+wordcloud(words =word_count$word[1:100],
+          freq = word_count$n[1:100],
+          random.order=FALSE,colors=brewer.pal(8, "Set2") )
+```
+
+According to the overall Word-Cloud, we found that "frien"d is a main factor of happiness among all people, also, we can see that "family", "played", "home", etc are also important factors for one to be happy. In this project, I will specificlly look at how happiness differ between males and females.
+
+
+### 2. Word Cloud based on gender
+```{r, warning=FALSE}
+bag_of_words_female <-bag_of_words[bag_of_words$gender=="f",]
+bag_of_words_male <-bag_of_words[bag_of_words$gender=="m",]
+
+word_count_female <- bag_of_words_female %>% count(word, sort = TRUE)
+word_count_male <- bag_of_words_male %>%count(word, sort = TRUE)
+```
+
+#### 2.1 Word Cloud for Males
+```{r}
+wordcloud(words =word_count_male$word[1:100],
+          freq = word_count_male$n[1:100],
+          random.order=FALSE,colors=brewer.pal(8, "Set2") )
+```
+
+According the word cloud above, we see that friend is the most important one as expected. However, other things such as "wife", "family", "game", "played" also showed their weight on males' happiness.
+
+#### 2.2 Word Cloud for Females
+
+```{r}
+
+wordcloud(words =word_count_female$word[1:100],
+          freq = word_count_female$n[1:100],
+          random.order=FALSE,colors=brewer.pal(8, "Set2") )
+
+png("wordcloud_packages.png", width=12,height=8, units='in', res=300)
+```
+
+For females, besides "friends", there are "husband", "home", "family", "son", "daughter" as main effects of females' happiness. This may shows that most of females get their happiness from their family aspects.
+
+### 3. Analysis of Happiness Catagories 
+
+#### 3.1 Pie chart for the happiness catagory 
+
+After the glimpse on the word clouds, we have a general sense about what made people happy. They, we study their happiness in to more details; specifically, through seven categories. They are "achievement", "affection", "bonding", "enjoy_the_moment","leisure","nature",and "exercise".
+
+```{r}
+
+weight_category<-data.frame(lb=c("achievement", "affection", "bonding", "enjoy_the_moment","leisure","nature","exercise"),dt=c(sum(hm_data$predicted_category=="achievement")/nrow(hm_data), sum(hm_data$predicted_category=="affection")/nrow(hm_data), sum(hm_data$predicted_category=="bonding")/nrow(hm_data), sum(hm_data$predicted_category=="enjoy_the_moment")/nrow(hm_data), sum(hm_data$predicted_category=="leisure")/nrow(hm_data), sum(hm_data$predicted_category=="nature")/nrow(hm_data), sum(hm_data$predicted_category=="exercise")/nrow(hm_data)))
+label2 <- paste(weight_category$lb, round(weight_category$dt*100, digits = 2)) # add percents to labels 
+label2 <- paste(label2, "%", sep="") # ad % to labels 
+pie(weight_category$dt, labels = label2, main="Weight of data", col = c(0,8,7,6,5,4,3,2))
+
+```
+After we look at the pie chart above, we noticed that for all people, affections and achievement and even bonding are major contributors to one's happiness. Again, we will look at the differences of happiness categories based on gender.
+
+### 3.2 happiness catagory based on gender
+
+Here, we will use Heatmaps to study these behaviors. Since Heatmaps are based on the word counts, we need to see whether the number of males equals to the number of females in our data. Thus, we create a pie chart to visualize this.
+
+```{r,warning=FALSE,message=FALSE}
+male_female<-data.frame(lb=c("male","female"),dt=c(sum(hm_data$gender=="m")/nrow(hm_data),
+                                         sum(hm_data$gender=="f")/nrow(hm_data)))
+
+label2 <- paste(male_female$lb, round(male_female$dt*100)) # add percents to labels 
+label2 <- paste(label2,"%",sep="") # ad % to labels 
+pie(male_female$dt,labels = label2,main="Where are the data from?")
+
+```
+
+According to the pie chart above, we noticed that in our data, 59% are from males and 41% are from females, which means, this data for gender are not even. We needs to take special consideration to this point in the following studies. Then, we create a heatmap.
+
+```{r, warning= F, message=FALSE}
+library(plyr)
+library(d3heatmap)
+Happy_Moment_Heat_Map_gender_Data <- hm_data[, c("gender","predicted_category")]
+
+Happy_Moment_Gender_Counts <- ddply(Happy_Moment_Heat_Map_gender_Data, .(Happy_Moment_Heat_Map_gender_Data$gender, Happy_Moment_Heat_Map_gender_Data$predicted_category), nrow)
+  
+colnames(Happy_Moment_Gender_Counts) <- c("gender", "category", "count")
+  
+category <- unique(Happy_Moment_Heat_Map_gender_Data$predicted_category)
+  
+gender <- unique(Happy_Moment_Heat_Map_gender_Data$gender)
+  
+Happy_Moment_Heap_Map_Gender_Matrix <- matrix(nrow = length(category), ncol = length(gender))
+  
+for (i in c(1:length(category))) {
+  
+  for (j in c(1:length(gender))) {
+    
+    Happy_Moment_Heap_Map_Gender_Matrix[i,j] = Happy_Moment_Gender_Counts[Happy_Moment_Gender_Counts$gender == gender[j] & Happy_Moment_Gender_Counts$category == category[i], "count" ]
+    
+  }
+  
+}
+
+rownames(Happy_Moment_Heap_Map_Gender_Matrix) <- category
+
+colnames(Happy_Moment_Heap_Map_Gender_Matrix) <- gender
+
+d3heatmap(Happy_Moment_Heap_Map_Gender_Matrix)
+
+```
+
+According to the heatmap above, we noticed that there is a huge difference in achievement and exercise between males and females. It seems that males consider more about their happiness through achievement and exercises. Then, we noticed that for affections, the number are almost the same bewteen males and females. However, as we mentioned above, in our data, the ratio of male to female is approximate 6:4. Thus, this means that more precentage of females feels happy through affections than that of males.
+
+### 4. Word frequency plot to check whether **marital** is influencial in the happiness
+
+#### 4.1 Word frequency plot to check whether **marital** is influencial to **Female**
+```{r, warning=FALSE, message= FALSE}
+#detach("package:tibble", unload=TRUE)
+detach("package:plyr", unload=TRUE)
+frequency_female <- bag_of_words_female %>% 
+  group_by(marital) %>% 
+  count(word, sort = TRUE) %>% 
+  left_join(bag_of_words_female %>% 
+              group_by(marital) %>% 
+              summarise(total = n())) %>%
+  mutate(freq = n/total)
+
+frequency_female<- frequency_female %>% 
+  select(marital, word, freq) %>% 
+  spread(marital, freq) %>%
+  arrange(single,married)
+
+ggplot(frequency_female, aes(single ,married)) +
+  geom_jitter(alpha = 0.1,color= "orangered2", size = 2, width = 0.2, height = 0.2) +
+  labs(title="Word Frequency for Single Female and Married Female",x="Single",y="Married")+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  geom_abline(color = "black")
+```
+
+According to the word frequncy plot, we finds out that Marriage is influencial in females' happiness. We observed that among married females, "husband", "daughter", "kids" has a relatively high frequnecy. While among single females, "boyfriend", "partner", "roommate" has a relatively high frequnecy. This make sense because when people married, they care more about their family. When people is single, they care more about their relationships and surrounding friends.
+
+#### 4.2 Word frequency plot to check whether **marital** is influencial to **Male**
+
+```{r,warning=FALSE, message=FALSE}
+frequency_male <- bag_of_words_male %>% 
+  group_by(marital) %>% 
+  count(word, sort = TRUE) %>% 
+  left_join(bag_of_words_male %>% 
+              group_by(marital) %>% 
+              summarise(total = n())) %>%
+  mutate(freq = n/total)
+
+frequency_male<- frequency_male %>% 
+  select(marital, word, freq) %>% 
+  spread(marital, freq) %>%
+  arrange(single,married)
+
+ggplot(frequency_male, aes(single ,married)) +
+  geom_jitter(alpha = 0.1,color= "skyblue", size = 2, width = 0.2, height = 0.2) +
+  labs(title="Word Frequency for Single Male and Married Male",x="Single",y="Married")+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  geom_abline(color = "black")
+
+```
+
+We saw a similar pattern of Males. Married Males cares more about their family, that is why words such as "wife", "daughter", "kids", etc has more weight. While for single Males, of course "girlfriend" has large weight. But beside that, usually they are relatively young, so they care more about themselves and their futures. That is why "internship", "quiz", "midterm" also have a relatively high frequncy.
+
+
+### 5. Whether **Parenthood** influence the happiness?
+
+#### 5.1 **Parenthood** of Female
+```{r}
+word_ratios_female <- bag_of_words_female %>%
+  count(word, parenthood) %>%
+  group_by(word) %>%
+  filter(sum(n) >= 50) %>%
+  ungroup() %>%
+  spread(parenthood, n, fill = 0) %>%
+  mutate_if(is.numeric, funs((. + 1) / (sum(.) + 1))) %>%
+  mutate(logratio = log(y /n )) %>%
+  arrange(desc(logratio))
+
+word_ratios_female %>%
+  group_by(logratio < 0) %>%
+  top_n(15, abs(logratio)) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, logratio)) %>%
+  ggplot(aes(word, logratio, fill = logratio < 0)) +
+  geom_col(alpha=0.8,show.legend = FALSE) +
+  coord_flip() +
+  labs(title="Word Usage for Female")+
+  ylab("log ratio (yes/no)") 
+
+```
+
+After look at the bar plot above, we finds out that Parenthood is also influencial in Females' happiness. After becoming a parent, they care more about there children, which makes "son", "daughter", "granddaughter" etc appears more frequently compared with those who is not a parent. While for females not becoming a parent, most of them may be single; that is why "roommate", "boyfriend", "vocation" has more weights.
+
+#### 5.2 **Parenthood** of Male
+```{r}
+word_ratios_male <- bag_of_words_male %>%
+  count(word, parenthood) %>%
+  group_by(word) %>%
+  filter(sum(n) >= 50) %>%
+  ungroup() %>%
+  spread(parenthood, n, fill = 0) %>%
+  mutate_if(is.numeric, funs((. + 1) / (sum(.) + 1))) %>%
+  mutate(logratio = log(y /n )) %>%
+  arrange(desc(logratio))
+
+word_ratios_male %>%
+  group_by(logratio < 0) %>%
+  top_n(15, abs(logratio)) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, logratio)) %>%
+  ggplot(aes(word, logratio, fill = logratio < 0)) +
+  geom_col(alpha=0.8,show.legend = FALSE) +
+  coord_flip() +
+  labs(title="Word Usage for Male")+
+  ylab("log ratio (yes/no)") 
+
+```
+
+Also, we find out that Parenthood is influencial in Males' happiness. After becoming a parent, similar to females, they care more about there children, which makes "son", "daughter", "kids" etc appears more frequently compared with those who is not a parent. While for males not becoming a parent, most of them may care less about their family; that is why "roommate", "girlfriend", "hung" has more weights.
+
+## III. Summary
+
+1. Overall, **Friendship** is the most popular effect to make people happy. For females, family would be a main effect and for males, beside family, their own entertainments such as games are also important aspect to make them happy.
+
+2. The sources of happiness for females comes more from affections and that of males comes more from achievements and exercise.
+
+3. People's marital and parenthood also influences the reasons that makes them happy, and the influence of  marital and parenthood have high correlations. After marriage, people cares more about their offsprings and family; While before marriage, females care more about their relationships and surrounding friends, while males care more about their future and career/study performance.
+
+
+### Reference
+1. https://github.com/rit-public/HappyDB
+
+
+
+
+
+
+
+
+
