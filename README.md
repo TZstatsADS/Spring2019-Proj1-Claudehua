@@ -2,7 +2,7 @@
 ## Spring 2019
 ## Project 1: What made you happy today?
 
-![image](figs/title_new)
+![image](figs/title_new.jpeg)
 
 ### [Project Description](doc/Proj1_desc.md)
 This is the first and only *individual* (as opposed to *team*) this semester. 
