@@ -2,17 +2,22 @@
 ## Spring 2019
 ## Project 1: What made you happy today?
 
-![image](figs/title.jpeg)
+![image](figs/title_new)
 
 ### [Project Description](doc/Proj1_desc.md)
 This is the first and only *individual* (as opposed to *team*) this semester. 
 
 Term: Spring 2019
 
-+ Projec title: Lorem ipsum dolor sit amet
++ Projec title: What are the Differences of Happiness Based on Gender?
 + This project is conducted by Shiwei Hua (sh3804)
 
-+ Project summary: [a short summary] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
++ Project summary: 1. Overall, Friendship is the most popular effect to make people happy. For females, family would be a main effect and for males, beside family, their own entertainments such as games are also important aspect to make them happy.
+
+2. The sources of happiness for females comes more from affections and that of males comes more from achievements and exercise.
+
+3. People's marital and parenthood also influences the reasons that makes them happy, and the influence of  marital and parenthood have high correlations. After marriage, people cares more about their offsprings and family; While before marriage, females care more about their relationships and surrounding friends, while males care more about their future and career/study performance.
+
 
 Following [suggestions](http://nicercode.github.io/blog/2013-04-05-projects/) by [RICH FITZJOHN](http://nicercode.github.io/about/#Team) (@richfitz). This folder is orgarnized as follows.
 
